@@ -1,17 +1,17 @@
 import json
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
-SOURCES = [
-    ('UCNGame', 'https://ucngame.com/codes/last-beacon-codes/'),
-    ('MrGuider', 'https://www.mrguider.org/codes/last-beacon-survival-codes/'),
-]
+SOURCES = [('UCNGame', 'https://ucngame.com/codes/last-beacon-codes/')]
 STATE_PATH = Path('data/seen_codes.json')
 CODE_RE = re.compile(r'^[A-Z0-9][A-Z0-9!_-]{3,24}$')
+DATE_RE = re.compile(r'Valid until ([A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})', re.I)
+MONTHS = {m.lower(): i for i, m in enumerate(['January','February','March','April','May','June','July','August','September','October','November','December'], 1)}
 
 def load_seen():
     if not STATE_PATH.exists():
@@ -22,19 +22,39 @@ def save_seen(seen):
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(sorted(seen), indent=2) + '\n', encoding='utf-8')
 
+def expiry_date(text):
+    match = DATE_RE.search(text)
+    if not match:
+        return None
+    raw = re.sub(r'(\d)(st|nd|rd|th)', r'\1', match.group(1))
+    raw = raw.replace(',', '')
+    parts = raw.split()
+    if len(parts) != 3:
+        return None
+    month = MONTHS.get(parts[0].lower())
+    if not month:
+        return None
+    return date(int(parts[2]), month, int(parts[1]))
+
 def fetch_codes():
     found = {}
     for name, url in SOURCES:
-        try:
-            r = requests.get(url, timeout=30, headers={'User-Agent': 'Mozilla/5.0 (compatible; Renegades-Bot-LB/1.0)'})
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, 'html.parser')
-            for el in soup.select('code, td'):
-                value = el.get_text(' ', strip=True).strip('` ').strip()
-                if CODE_RE.fullmatch(value):
-                    found.setdefault(value, (name, url))
-        except requests.RequestException as exc:
-            print(f'Source unavailable: {url} ({exc})')
+        r = requests.get(url, timeout=30, headers={'User-Agent': 'Mozilla/5.0 (compatible; Renegades-Bot-LB/1.0)'})
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for row in soup.select('tr'):
+            cells = row.find_all(['td', 'th'])
+            if len(cells) < 2:
+                continue
+            code = cells[0].get_text(' ', strip=True).strip('` ').strip()
+            details = ' '.join(c.get_text(' ', strip=True) for c in cells[1:])
+            if not CODE_RE.fullmatch(code):
+                continue
+            expires = expiry_date(details)
+            if expires is not None and expires < date.today():
+                print(f'Skipping expired code: {code} (expired {expires})')
+                continue
+            found.setdefault(code, (name, url))
     return found
 
 def send_discord(code, name, url):
@@ -58,7 +78,7 @@ def main():
         send_discord(code, name, url)
     seen.update(codes.keys())
     save_seen(seen)
-    print(f'Found {len(codes)} codes; sent {len(new_codes)} new codes.')
+    print(f'Found {len(codes)} active codes; sent {len(new_codes)} new codes.')
 
 if __name__ == '__main__':
     main()
