@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: last-beacon-gift-codes
+  group: renegades-bot-state
   cancel-in-progress: false
 
 jobs:
