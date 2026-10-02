@@ -1,0 +1,38 @@
+name: Last Beacon Gift Codes
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: last-beacon-gift-codes
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Check codes
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python src/check_codes.py
+      - name: Save state
+        run: |
+          git config user.name "renegades-bot"
+          git config user.email "renegades-bot@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes."
+          else
+            git add data/seen_codes.json
+            git commit -m "chore: update seen gift codes"
+            git push
+          fi
