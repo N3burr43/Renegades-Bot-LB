@@ -1,0 +1,38 @@
+name: Renegades Member Joins
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: renegades-bot-state
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Check new members
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: python src/check_members.py
+      - name: Save member state
+        run: |
+          git config user.name "renegades-bot"
+          git config user.email "renegades-bot@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes."
+          else
+            git add data/seen_members.json
+            git commit -m "chore: update seen member state"
+            git push
+          fi
